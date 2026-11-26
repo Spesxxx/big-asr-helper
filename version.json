@@ -1,0 +1,5 @@
+{
+  "version": "1.0.9",
+  "download_url": "https://github.com/Spesxxx/big-asr-helper/releases/latest/download/big-asr-helper-extension.zip",
+  "notes": "v1.0.9：支持在线版本自动检测、浏览器端音频压缩、>20s强制按句切分与真实鼠标拖拽"
+}
