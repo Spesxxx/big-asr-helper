@@ -76,7 +76,7 @@
     <div class="asr-header">
       <div class="asr-header-title">
         <span>🎙️ Big ASR 助手</span>
-        <span class="asr-badge">v1.0.9</span>
+        <span class="asr-badge">v1.0.10</span>
       </div>
       <div class="asr-header-actions">
         <button class="asr-icon-btn" id="asr-btn-refresh" title="刷新当前题信息">⟳</button>

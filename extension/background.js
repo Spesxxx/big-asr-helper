@@ -69,30 +69,43 @@ function extractJsonFromText(text) {
   }
 }
 
+function safeHost(url) {
+  try {
+    return new URL(url).host;
+  } catch (_) {
+    return String(url || "").slice(0, 60);
+  }
+}
+
 async function callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, signal) {
   const oaiUrl = `${config.GEMINI_BASE_URL.replace(/\/+$/, "")}/chat/completions`;
-  const oaiResp = await fetch(oaiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${config.GEMINI_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: config.GEMINI_MODEL,
-      temperature: 0.1,
-      max_tokens: 8192,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: promptText },
-            { type: "image_url", image_url: { url: `data:${mimeType};base64,${audioBase64}` } }
-          ]
-        }
-      ]
-    }),
-    signal
-  });
+  let oaiResp;
+  try {
+    oaiResp = await fetch(oaiUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${config.GEMINI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: config.GEMINI_MODEL,
+        temperature: 0.1,
+        max_tokens: 8192,
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: promptText },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${audioBase64}` } }
+            ]
+          }
+        ]
+      }),
+      signal
+    });
+  } catch (netErr) {
+    throw new Error(`连接云端 API 失败 [${netErr.message}]（域名: ${safeHost(oaiUrl)}，请检查本机网络/代理能否直接访问该地址）`);
+  }
 
   if (!oaiResp.ok) {
     const oaiErr = await oaiResp.text();
@@ -104,7 +117,7 @@ async function callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, si
   try {
     return extractJsonFromText(content);
   } catch (e) {
-    throw new Error(`${e.message} (v1.0.8, oai_finish=${oaiFinish})`);
+    throw new Error(`${e.message} (v1.0.10, oai_finish=${oaiFinish})`);
   }
 }
 
@@ -140,17 +153,23 @@ async function callGeminiWithAudio(config, promptText, audioBase64, mimeType, th
       generationConfig
     };
 
-    const resp = await fetch(nativeUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: controller.signal
-    });
+    let resp = null;
+    try {
+      resp = await fetch(nativeUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      });
+    } catch (netErr) {
+      // Transient network / TLS error on native endpoint -> automatically retry via OpenAI channel
+      await cdpSleep(800);
+      return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, controller.signal);
+    }
 
     if (resp.ok) {
       const data = await resp.json();
       const candidate = data?.candidates?.[0];
-      const finishReason = candidate?.finishReason || "";
       const parts = candidate?.content?.parts || [];
       const textPart = parts
         .filter((p) => !p.thought && typeof p.text === "string")
@@ -179,9 +198,18 @@ async function callGeminiWithAudio(config, promptText, audioBase64, mimeType, th
 
 async function handleFetchAudio(audioUrl) {
   if (!audioUrl) throw new Error("未检测到音频 URL");
-  const resp = await fetch(audioUrl, { credentials: "omit" });
+  let resp;
+  try {
+    resp = await fetch(audioUrl, { credentials: "omit" });
+  } catch (_) {
+    try {
+      resp = await fetch(audioUrl, { credentials: "include" });
+    } catch (err2) {
+      throw new Error(`拉取音频失败 [${err2.message}]（域名: ${safeHost(audioUrl)}，请刷新页面或检查网络/代理）`);
+    }
+  }
   if (!resp.ok) {
-    throw new Error(`下载音频失败: HTTP ${resp.status}`);
+    throw new Error(`下载音频失败: HTTP ${resp.status}（域名: ${safeHost(audioUrl)}）`);
   }
   const ct = (resp.headers.get("content-type") || "").toLowerCase();
   if (/^(text\/|image\/|application\/(json|javascript|xml))/.test(ct)) {
