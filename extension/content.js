@@ -73,15 +73,16 @@
   const panel = document.createElement("div");
   panel.id = "asr-helper-panel";
   panel.innerHTML = `
-    <div class="asr-header">
+    <div class="asr-header" id="asr-header-drag">
       <div class="asr-header-title">
         <span>🎙️ Big ASR 助手</span>
-        <span class="asr-badge">v1.0.11</span>
+        <span class="asr-badge">v1.0.12</span>
       </div>
       <div class="asr-header-actions">
+        <button class="asr-icon-btn" id="asr-btn-collapse" title="折叠/展开面板">−</button>
         <button class="asr-icon-btn" id="asr-btn-refresh" title="刷新当前题信息">⟳</button>
         <button class="asr-icon-btn" id="asr-btn-settings" title="API 与参数设置">⚙️</button>
-        <button class="asr-icon-btn" id="asr-btn-close" title="收起面板">✕</button>
+        <button class="asr-icon-btn" id="asr-btn-close" title="隐藏到右下角按钮">✕</button>
       </div>
     </div>
     <div class="asr-body">
@@ -225,12 +226,76 @@
     sec.classList.remove("asr-hidden");
   }
 
-  // Toggle panel
-  toggleBtn.addEventListener("click", () => {
-    panel.classList.toggle("asr-hidden");
-    if (!panel.classList.contains("asr-hidden")) refreshMeta();
+  // Toggle / collapse / hide panel with persisted preference
+  function setCollapsed(collapsed) {
+    panel.classList.toggle("asr-collapsed", collapsed);
+    $("asr-btn-collapse").textContent = collapsed ? "+" : "−";
+    $("asr-btn-collapse").title = collapsed ? "展开面板" : "折叠面板";
+    chrome.storage.local.set({ asrPanelCollapsed: collapsed });
+  }
+
+  chrome.storage.local.get(["asrPanelCollapsed"], (res) => {
+    // Default to collapsed on first load so it never blocks the timeline/workspace
+    const collapsed = res.asrPanelCollapsed !== undefined ? Boolean(res.asrPanelCollapsed) : true;
+    setCollapsed(collapsed);
   });
-  $("asr-btn-close").addEventListener("click", () => panel.classList.add("asr-hidden"));
+
+  $("asr-btn-collapse").addEventListener("click", (e) => {
+    e.stopPropagation();
+    setCollapsed(!panel.classList.contains("asr-collapsed"));
+  });
+
+  toggleBtn.addEventListener("click", () => {
+    if (panel.classList.contains("asr-hidden")) {
+      panel.classList.remove("asr-hidden");
+      setCollapsed(false);
+      refreshMeta();
+    } else if (panel.classList.contains("asr-collapsed")) {
+      setCollapsed(false);
+      refreshMeta();
+    } else {
+      panel.classList.add("asr-hidden");
+    }
+  });
+  $("asr-btn-close").addEventListener("click", (e) => {
+    e.stopPropagation();
+    panel.classList.add("asr-hidden");
+  });
+
+  // Make panel freely draggable by its header bar
+  (function enableHeaderDrag() {
+    const header = $("asr-header-drag");
+    let dragging = false;
+    let startX = 0, startY = 0, origLeft = 0, origTop = 0;
+
+    header.addEventListener("mousedown", (e) => {
+      if (e.target.closest("button")) return;
+      dragging = true;
+      const rect = panel.getBoundingClientRect();
+      startX = e.clientX;
+      startY = e.clientY;
+      origLeft = rect.left;
+      origTop = rect.top;
+      panel.style.right = "auto";
+      panel.style.left = origLeft + "px";
+      panel.style.top = origTop + "px";
+      e.preventDefault();
+    });
+
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      const maxLeft = Math.max(0, window.innerWidth - 120);
+      const maxTop = Math.max(0, window.innerHeight - 44);
+      panel.style.left = Math.max(0, Math.min(maxLeft, origLeft + dx)) + "px";
+      panel.style.top = Math.max(0, Math.min(maxTop, origTop + dy)) + "px";
+    });
+
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+    });
+  })();
   $("asr-btn-refresh").addEventListener("click", () => {
     refreshMeta();
     setStatus("已刷新当前题目状态。", "info");
