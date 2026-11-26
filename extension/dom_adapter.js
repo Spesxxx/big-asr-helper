@@ -464,10 +464,13 @@
 
     const innerRect = inner.getBoundingClientRect();
     const waveRect = waverow.getBoundingClientRect();
+    const scRect = scroller ? scroller.getBoundingClientRect() : waveRect;
     const { offsetX, offsetY } = getFrameViewportOffset(inner);
     const vpY = offsetY + waveRect.top + waveRect.height * 0.5;
-    const vpStartX = offsetX + innerRect.left + relStartX;
-    const vpEndX = offsetX + innerRect.left + relEndX;
+    const minVpX = offsetX + scRect.left + 2;
+    const maxVpX = offsetX + Math.min(scRect.right, innerRect.left + (totalDurationMs / 1000) * pxPerSec) - 2;
+    const vpStartX = Math.max(minVpX, Math.min(maxVpX - 4, offsetX + innerRect.left + relStartX));
+    const vpEndX = Math.max(vpStartX + 4, Math.min(maxVpX, offsetX + innerRect.left + relEndX));
 
     // Primary: Chrome DevTools Protocol trusted mouse drag (isTrusted: true)
     try {
@@ -506,44 +509,60 @@
     await sleep(220);
   }
 
+  // Make our own floating helper panel click-through while real mouse drags run so it NEVER blocks the right side of the waveform!
+  function setHelperOverlayPassThrough(passThrough) {
+    const panel = document.getElementById("asr-helper-panel");
+    const toggle = document.getElementById("asr-helper-toggle");
+    for (const el of [panel, toggle]) {
+      if (!el) continue;
+      el.style.pointerEvents = passThrough ? "none" : "";
+      el.style.opacity = passThrough ? "0.2" : "";
+    }
+  }
+
   // Clear existing segments, draw all new segments on timeline, and fill their utterance texts
   async function applyUtterancesToPage(segments, totalDurationMs, onProgress) {
     if (!segments || segments.length === 0) throw new Error("没有可回填的 utterance 片段");
 
-    if (onProgress) onProgress("正在清空旧片段...");
-    await clearAllSegments();
-    await sleep(200);
-
-    const zoomSlider = findZoomSlider();
-    if (zoomSlider) {
-      setReactRangeValue(zoomSlider, 1);
+    setHelperOverlayPassThrough(true);
+    try {
+      if (onProgress) onProgress("正在清空旧片段...");
+      await clearAllSegments();
       await sleep(200);
-    }
 
-    for (let i = 0; i < segments.length; i++) {
-      const seg = segments[i];
-      if (onProgress) {
-        onProgress(`正在切分第 ${i + 1}/${segments.length} 段 (${global.SopRules.msToTimestamp(seg.startMs)} → ${global.SopRules.msToTimestamp(seg.endMs)})...`);
+      const zoomSlider = findZoomSlider();
+      if (zoomSlider) {
+        setReactRangeValue(zoomSlider, 1);
+        await sleep(200);
       }
-      const beforeCount = deepQuerySelectorAll('textarea[data-field-id^="utterance-text-"]').length;
-      await dragCreateSegment(seg.startMs, seg.endMs, totalDurationMs);
 
-      let afterCount = deepQuerySelectorAll('textarea[data-field-id^="utterance-text-"]').length;
-      if (afterCount <= beforeCount) {
-        // Retry with 80ms inset to avoid pixel-rounding collision with adjacent segment borders
-        await dragCreateSegment(seg.startMs + 80, Math.max(seg.startMs + 220, seg.endMs - 80), totalDurationMs);
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        if (onProgress) {
+          onProgress(`正在切分第 ${i + 1}/${segments.length} 段 (${global.SopRules.msToTimestamp(seg.startMs)} → ${global.SopRules.msToTimestamp(seg.endMs)})...`);
+        }
+        const beforeCount = deepQuerySelectorAll('textarea[data-field-id^="utterance-text-"]').length;
+        await dragCreateSegment(seg.startMs, seg.endMs, totalDurationMs);
+
+        let afterCount = deepQuerySelectorAll('textarea[data-field-id^="utterance-text-"]').length;
+        if (afterCount <= beforeCount) {
+          // Retry with 80ms inset to avoid pixel-rounding collision with adjacent segment borders
+          await dragCreateSegment(seg.startMs + 80, Math.max(seg.startMs + 220, seg.endMs - 80), totalDurationMs);
+        }
       }
-    }
 
-    await sleep(250);
-    const utts = getUtterances();
-    const count = Math.min(utts.length, segments.length);
-    for (let i = 0; i < count; i++) {
-      setReactTextareaValue(utts[i].textarea, segments[i].text);
-      await sleep(40);
-    }
+      await sleep(250);
+      const utts = getUtterances();
+      const count = Math.min(utts.length, segments.length);
+      for (let i = 0; i < count; i++) {
+        setReactTextareaValue(utts[i].textarea, segments[i].text);
+        await sleep(40);
+      }
 
-    return { created: utts.length, expected: segments.length };
+      return { created: utts.length, expected: segments.length };
+    } finally {
+      setHelperOverlayPassThrough(false);
+    }
   }
 
   global.AidpDom = {
