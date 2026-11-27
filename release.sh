@@ -15,13 +15,14 @@ data = json.load(open(path)) if os.path.exists(path) else {}
 data["version"] = ver
 data["notes"] = notes
 if not data.get("download_url"):
-    data["download_url"] = "https://REPLACE_WITH_YOUR_HOST/big-asr-helper-extension.zip"
+    data["download_url"] = "https://github.com/Spesxxx/big-asr-helper/releases/latest/download/big-asr-helper-extension.zip"
 with open(path, "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False, indent=2)
     f.write("\n")
 print("Updated version.json ->", ver)
 EOF
 
+chmod +x updater/native_host.py 安装一键更新_Mac.command
 rm -f big-asr-helper-extension.zip
-zip -r big-asr-helper-extension.zip extension README.md
-echo "Done! Upload both version.json and big-asr-helper-extension.zip to your static host."
+zip -r big-asr-helper-extension.zip extension updater 安装一键更新_Mac.command 安装一键更新_Windows.bat README.md
+echo "Done! Upload both version.json and big-asr-helper-extension.zip to GitHub."

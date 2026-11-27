@@ -474,6 +474,36 @@ async function handleCheckUpdate() {
   };
 }
 
+const NATIVE_UPDATER_HOST = "com.spesxxx.big_asr_updater";
+
+function handlePerformAutoUpdate(downloadUrl) {
+  return new Promise((resolve, reject) => {
+    if (!chrome.runtime.sendNativeMessage) {
+      return reject(new Error("当前浏览器不支持 Native Messaging"));
+    }
+    chrome.runtime.sendNativeMessage(
+      NATIVE_UPDATER_HOST,
+      { action: "update", download_url: downloadUrl || "" },
+      (resp) => {
+        if (chrome.runtime.lastError) {
+          const msg = chrome.runtime.lastError.message || "未注册本地更新器";
+          return reject(new Error(`尚未启用一键自动更新（${msg}）。请双击文件夹里的「安装一键更新_Mac.command」或「安装一键更新_Windows.bat」注册一次即可！`));
+        }
+        if (!resp || !resp.ok) {
+          return reject(new Error(resp?.error || "本地更新器执行失败"));
+        }
+        resolve(resp);
+        // Hot-reload the Chrome extension shortly after sending success response to the page
+        setTimeout(() => {
+          try {
+            chrome.runtime.reload();
+          } catch (_) {}
+        }, 700);
+      }
+    );
+  });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
@@ -491,6 +521,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, data: res });
       } else if (msg.type === "CHECK_UPDATE") {
         const res = await handleCheckUpdate();
+        sendResponse({ ok: true, data: res });
+      } else if (msg.type === "PERFORM_AUTO_UPDATE") {
+        const res = await handlePerformAutoUpdate(msg.downloadUrl);
         sendResponse({ ok: true, data: res });
       } else {
         sendResponse({ ok: false, error: "Unknown message type: " + msg.type });

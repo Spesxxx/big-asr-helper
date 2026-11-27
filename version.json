@@ -1,5 +1,5 @@
 {
-  "version": "1.0.13",
+  "version": "1.0.14",
   "download_url": "https://github.com/Spesxxx/big-asr-helper/releases/latest/download/big-asr-helper-extension.zip",
-  "notes": "v1.0.13：修复请求超时触发 signal is aborted without reason 导致备用通道未生效的问题，并加强长音频压缩"
+  "notes": "v1.0.14：支持插件内「⚡ 一键更新」自动后台覆盖并热重启扩展（Mac/Windows 双平台）"
 }

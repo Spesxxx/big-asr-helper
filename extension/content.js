@@ -76,7 +76,7 @@
     <div class="asr-header" id="asr-header-drag">
       <div class="asr-header-title">
         <span>🎙️ Big ASR 助手</span>
-        <span class="asr-badge">v1.0.13</span>
+        <span class="asr-badge">v1.0.14</span>
       </div>
       <div class="asr-header-actions">
         <button class="asr-icon-btn" id="asr-btn-collapse" title="折叠/展开面板">−</button>
@@ -88,7 +88,10 @@
     <div class="asr-body">
       <div class="asr-update-banner asr-hidden" id="asr-update-banner">
         <span id="asr-update-text"></span>
-        <a class="asr-update-link" id="asr-update-link" href="#" target="_blank" rel="noopener">下载新版</a>
+        <div style="display:flex;gap:4px;align-items:center;flex-shrink:0">
+          <button class="asr-update-link" id="asr-btn-auto-update" style="border:none;cursor:pointer">⚡ 一键更新</button>
+          <a class="asr-icon-btn" id="asr-update-link" href="#" target="_blank" rel="noopener" title="手动下载 zip" style="color:#1d4ed8;font-size:12px">⬇</a>
+        </div>
       </div>
       <div class="asr-meta" id="asr-meta-box">
         <div>题目: <b id="asr-meta-id">-</b></div>
@@ -331,11 +334,14 @@
     });
   });
 
+  let latestDownloadUrl = "";
+
   async function checkForUpdates() {
     try {
       const info = await sendBgMessage({ type: "CHECK_UPDATE" });
       const banner = $("asr-update-banner");
       if (info && info.hasUpdate && info.downloadUrl) {
+        latestDownloadUrl = info.downloadUrl;
         $("asr-update-text").textContent = `🆕 发现新版本 v${info.latestVersion}${info.notes ? "：" + info.notes : ""}`;
         $("asr-update-link").href = info.downloadUrl;
         banner.classList.remove("asr-hidden");
@@ -344,6 +350,22 @@
       }
     } catch (_) {}
   }
+
+  $("asr-btn-auto-update").addEventListener("click", async () => {
+    const btn = $("asr-btn-auto-update");
+    btn.disabled = true;
+    btn.textContent = "更新中...";
+    setStatus("正在后台自动下载并覆盖最新扩展文件...", "info");
+    try {
+      const res = await sendBgMessage({ type: "PERFORM_AUTO_UPDATE", downloadUrl: latestDownloadUrl });
+      setStatus(`已自动覆盖至 v${res.version || "最新"}，正在热重启扩展并刷新页面...`, "ok");
+      setTimeout(() => window.location.reload(), 1800);
+    } catch (err) {
+      btn.disabled = false;
+      btn.textContent = "⚡ 一键更新";
+      setStatus(err.message, "warn");
+    }
+  });
 
   $("btn-apply-remark").addEventListener("click", () => {
     if (lastAsrResult?.suggested_remark) {

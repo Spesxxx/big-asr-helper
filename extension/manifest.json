@@ -1,11 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Big ASR 标注助手 (17语种 SOP)",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "面向 AIDP Big ASR 测试集（17语种）的半自动标注、强制对齐切分与 SOP 第12节提交前全检助手。绝不自动提交。",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA49MdFqCgOR7jeIe0DiZZ+n0/m7GuxS8t/cSnXBAtpy37oIcTXuREPAhSXfz9tpQHWjZ8XfP2WX0FptMR4n1mN5G9adV3fXebPhf/0PBdOzr8aULcFlZHx7Iwdeuh8oh+pwTKxt8qD0X9L6dJ5EN7hZg9U3IOnOSIvzdB7c3bgOb4httA+qSG/lcyb7/5MAr1PPT5nyQnml/cTkESXUF4vfIG66+cdc7ok2LJRTk4EFL26NTlMVQGq2vYf1x3VdFKqHplwZVldIh8QSMgUgIAJ/vPNGdEzcKdO47rOU9JJmQwHDPqjKduRaNh8HKTZisUtddntq+VbvafE+auJY1UBwIDAQAB",
   "permissions": [
     "storage",
-    "debugger"
+    "debugger",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://aidp.byteintl.com/*",
