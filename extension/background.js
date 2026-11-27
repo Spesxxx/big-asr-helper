@@ -77,34 +77,56 @@ function safeHost(url) {
   }
 }
 
-async function callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, signal) {
+async function fetchWithTimeout(url, options, timeoutMs) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } catch (err) {
+    if (timedOut || err?.name === "AbortError") {
+      throw new Error(`请求超时（超过 ${Math.round(timeoutMs / 1000)} 秒无响应，域名: ${safeHost(url)}）`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, timeoutMs) {
   const oaiUrl = `${config.GEMINI_BASE_URL.replace(/\/+$/, "")}/chat/completions`;
   let oaiResp;
   try {
-    oaiResp = await fetch(oaiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${config.GEMINI_API_KEY}`
+    oaiResp = await fetchWithTimeout(
+      oaiUrl,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.GEMINI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: config.GEMINI_MODEL,
+          temperature: 0.1,
+          max_tokens: 8192,
+          messages: [
+            {
+              role: "user",
+              content: [
+                { type: "text", text: promptText },
+                { type: "image_url", image_url: { url: `data:${mimeType};base64,${audioBase64}` } }
+              ]
+            }
+          ]
+        })
       },
-      body: JSON.stringify({
-        model: config.GEMINI_MODEL,
-        temperature: 0.1,
-        max_tokens: 8192,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: promptText },
-              { type: "image_url", image_url: { url: `data:${mimeType};base64,${audioBase64}` } }
-            ]
-          }
-        ]
-      }),
-      signal
-    });
+      timeoutMs || config.TIMEOUT_MS || 90000
+    );
   } catch (netErr) {
-    throw new Error(`连接云端 API 失败 [${netErr.message}]（域名: ${safeHost(oaiUrl)}，请检查本机网络/代理能否直接访问该地址）`);
+    throw new Error(`连接云端 API 失败 [${netErr.message}]（请检查网络/代理或稍后重试）`);
   }
 
   if (!oaiResp.ok) {
@@ -117,83 +139,82 @@ async function callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, si
   try {
     return extractJsonFromText(content);
   } catch (e) {
-    throw new Error(`${e.message} (v1.0.10, oai_finish=${oaiFinish})`);
+    throw new Error(`${e.message} (v1.0.13, oai_finish=${oaiFinish})`);
   }
 }
 
 async function callGeminiWithAudio(config, promptText, audioBase64, mimeType, thinkingBudgetOverride, forceOpenAi = false) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), config.TIMEOUT_MS || 90000);
+  const fullTimeout = config.TIMEOUT_MS || 90000;
+  const nativeTimeout = Math.min(55000, fullTimeout);
 
+  if (forceOpenAi) {
+    return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, fullTimeout);
+  }
+
+  const nativeUrl = deriveGeminiNativeUrl(config.GEMINI_BASE_URL, config.GEMINI_MODEL, config.GEMINI_API_KEY);
+  const budget = thinkingBudgetOverride !== undefined ? thinkingBudgetOverride : Number(config.THINKING_BUDGET ?? 0);
+  const generationConfig = {
+    temperature: 0.1,
+    maxOutputTokens: 8192,
+    responseMimeType: "application/json"
+  };
+  if (budget >= 0) {
+    generationConfig.thinkingConfig = { thinkingBudget: budget };
+  }
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: promptText },
+          { inlineData: { mimeType, data: audioBase64 } }
+        ]
+      }
+    ],
+    generationConfig
+  };
+
+  let resp = null;
   try {
-    if (forceOpenAi) {
-      return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, controller.signal);
-    }
-
-    const nativeUrl = deriveGeminiNativeUrl(config.GEMINI_BASE_URL, config.GEMINI_MODEL, config.GEMINI_API_KEY);
-    const budget = thinkingBudgetOverride !== undefined ? thinkingBudgetOverride : Number(config.THINKING_BUDGET ?? 0);
-    const generationConfig = {
-      temperature: 0.1,
-      maxOutputTokens: 8192,
-      responseMimeType: "application/json"
-    };
-    if (budget >= 0) {
-      generationConfig.thinkingConfig = { thinkingBudget: budget };
-    }
-    const body = {
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: promptText },
-            { inlineData: { mimeType, data: audioBase64 } }
-          ]
-        }
-      ],
-      generationConfig
-    };
-
-    let resp = null;
-    try {
-      resp = await fetch(nativeUrl, {
+    resp = await fetchWithTimeout(
+      nativeUrl,
+      {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      });
-    } catch (netErr) {
-      // Transient network / TLS error on native endpoint -> automatically retry via OpenAI channel
-      await cdpSleep(800);
-      return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, controller.signal);
-    }
-
-    if (resp.ok) {
-      const data = await resp.json();
-      const candidate = data?.candidates?.[0];
-      const parts = candidate?.content?.parts || [];
-      const textPart = parts
-        .filter((p) => !p.thought && typeof p.text === "string")
-        .map((p) => p.text)
-        .join("");
-
-      if (!textPart) {
-        return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, controller.signal);
-      }
-      try {
-        return extractJsonFromText(textPart);
-      } catch (parseErr) {
-        if (thinkingBudgetOverride === undefined) {
-          return await callGeminiWithAudio(config, promptText, audioBase64, mimeType, 0, false);
-        }
-        return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, controller.signal);
-      }
-    }
-
-    // Fallback to OpenAI-compatible data URI format when native channel returns 4xx/5xx
-    return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, controller.signal);
-  } finally {
-    clearTimeout(timer);
+        body: JSON.stringify(body)
+      },
+      nativeTimeout
+    );
+  } catch (netErr) {
+    // Native endpoint timed out or dropped -> retry with a FRESH timeout on OpenAI channel
+    await cdpSleep(600);
+    return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, fullTimeout);
   }
+
+  if (resp.ok) {
+    const data = await resp.json();
+    const candidate = data?.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    const textPart = parts
+      .filter((p) => !p.thought && typeof p.text === "string")
+      .map((p) => p.text)
+      .join("");
+
+    if (!textPart) {
+      return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, fullTimeout);
+    }
+    try {
+      return extractJsonFromText(textPart);
+    } catch (parseErr) {
+      if (thinkingBudgetOverride === undefined) {
+        return await callGeminiWithAudio(config, promptText, audioBase64, mimeType, 0, false);
+      }
+      return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, fullTimeout);
+    }
+  }
+
+  // Fallback to OpenAI-compatible data URI format when native channel returns 4xx/5xx
+  return await callGeminiViaOpenAi(config, promptText, audioBase64, mimeType, fullTimeout);
 }
 
 async function handleFetchAudio(audioUrl) {

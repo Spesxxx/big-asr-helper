@@ -76,7 +76,7 @@
     <div class="asr-header" id="asr-header-drag">
       <div class="asr-header-title">
         <span>🎙️ Big ASR 助手</span>
-        <span class="asr-badge">v1.0.12</span>
+        <span class="asr-badge">v1.0.13</span>
       </div>
       <div class="asr-header-actions">
         <button class="asr-icon-btn" id="asr-btn-collapse" title="折叠/展开面板">−</button>

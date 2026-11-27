@@ -74,12 +74,12 @@
         }
       }
 
-      // Re-encode to compact mono PCM WAV (16kHz, or 8kHz if >90s) whenever original audio is >1.2MB or non-WAV
+      // Re-encode to compact mono PCM WAV whenever audio >800KB, high sample rate, or multi-channel
       let compactWavBase64 = null;
       let compactBytes = 0;
       try {
-        if (arrayBuffer.byteLength > 1200000 || audioBuffer.sampleRate > 16000 || audioBuffer.numberOfChannels > 1) {
-          const targetRate = audioBuffer.duration > 90 ? 8000 : 16000;
+        if (arrayBuffer.byteLength > 800000 || audioBuffer.sampleRate > 16000 || audioBuffer.numberOfChannels > 1) {
+          const targetRate = audioBuffer.duration > 60 ? 8000 : audioBuffer.duration > 35 ? 12000 : 16000;
           const resampled = await resampleMono(audioBuffer, targetRate);
           const wavBuf = encodePcm16Wav(resampled, targetRate);
           compactBytes = wavBuf.byteLength;
